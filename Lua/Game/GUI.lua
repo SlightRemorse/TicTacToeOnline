@@ -34,9 +34,8 @@ Engine.Class.Button =
 		self.__text.h = self.h
 		self.__text.text = self.text
 		self.__text.fontName = self.fontName
-		self.__text.fontSize (self.h*0.8)
+		self.__text.fontSize = self.h*0.8
 		self.__text:Update()
-		
 	end,
 	
 	Clicked  = function(self)
@@ -102,7 +101,7 @@ Engine.Class.TextField =
 		__text.h = self.h
 		__text.text = self.text
 		__text.fontName = self.fontName
-		__text.fontSize (self.h*0.8)
+		__text.fontSize = self.h*0.8
 		__text:Update()
 		
 	end,

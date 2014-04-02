@@ -1,11 +1,60 @@
+Engine.Class.GameClientSocket = {
+	__parent = "DataSocket"
+}
+
 local Game = {}
 Game.hostname = "localhost"
 Game.port = "5150"
 
-function MainLuaLoop() -- rename to Client later on :)
+function GameClientSocket:onReceive(msg)
+	local cmd, args = DeserializeMessage(msg)
+	print("Command:", cmd)
+	if args then
+		print("Args:", args[1], args[2], args[3])
+	end
+	
+	if cmd == "Login" then
+		if Game.state ~= "login" or not args then
+			print("DISCONNECT HIM!")
+			Game.state = nil
+			return
+		end
+		if args[1] == "logged" then
+			Game.state = "lobby"
+			print("Connected. Moving to Lobby.")
+		else
+			print("Connection:", args[1])
+		end	
+	elseif cmd == "ListGames" then
+		if Game.state ~= "lobby" or not args then
+			print("DISCONNECT HIM!")
+			return
+		end
+		
+		for i=1, 8 do
+			Game.Rooms[i].text = args[2*i]
+			Game.Rooms[i].state = args[2*i-1]
+			Game.Rooms[i]:Update()
+		end
+		
+	elseif cmd == "JoinRoom" then
+		if Game.state ~= "lobby" or not args  then
+			print("DISCONNECT HIM!")
+			return
+		end
+		
+		--SOLVE :3
+	end
+end
+
+function GameClientSocket:onConnect()
+	print("Connected to server!")
+end
+
+function Client() -- rename to Client later on :)
 	Engine.SetWindowTitle("Tic Tac Toe Online v0")
 	
-	Game.state = "game" -- default is login
+	Game.state = "login" -- default is login
 	
 	if not LoadResources() then
 		print("Failed to load resources. Make sure you have the /asset/ folder.")
@@ -70,7 +119,7 @@ function LoginScreen()
 		Banner.small:Remove()
 	end
 	
-	while true do 
+	while Game.state == "login" do 
 		--STUFF
 		if Username.field:Clicked() then
 			Password.field.Focused = false
@@ -80,21 +129,23 @@ function LoginScreen()
 			Username.field.Focused = false
 		elseif Connect:Clicked() then
 			if not Username.field.text or not Password.field.text then
-				print("A field is empty")
+				print("A field is empty!")
 			else
-				print("CONNECT!", Username.field.text, Password.field.text)
-				ConnectToServer(Game.hostname, Game.port)
-				LoginServer(Username.field.text, Password.field.text)
-				
-				if true then
-					CleanUp()
-					return "lobby"
+				print("Connecting as:", Username.field.text, Password.field.text)
+				local socket, err = ConnectToServer(Game.hostname, Game.port)
+				if err then
+					print("Unable to connect!")
+				else
+					Game.socket = socket -- from now on we use this socket
+					
+					LoginServer(Username.field.text, Password.field.text)
 				end
 			end
 		end
-		
 		Engine.SleepRoutine(100)
 	end
+	CleanUp()
+	return Game.state
 end
 
 function Lobby()
@@ -102,11 +153,11 @@ function Lobby()
 	Banner.large = BaseText:new{x = 0, w = 800, y = 20, h = 100, align = "c", fontSize=75, text="Lobby", color = 0xFF483D8B}
 	Banner.small = BaseText:new{x = 0, w = 800, y = 130, h = 70, align = "cm", fontSize=45, text="Games", color = 0xFFAA99CC}
 	local Exit = Button:new{x = 650, y=550, w = 120, h = 30, colorBG = 0xFF8800AA, colorText = 0xAAFFFFFF, text="Exit", fontName="Lucida Console"}
-	local Stats = Button:new{x = 500, y=550, w = 120, h = 30, colorBG = 0xFFAA0088, colorText = 0xAAFFFFFF, text="Stats", fontName="Lucida Console"}
+	local Stats = Button:new{x = 500, y=550, w = 120, h = 30, colorBG = 0xFFAA0088, colorText = 0xAAFFFFFF, text="History", fontName="Lucida Console"}
 	
-	local Games = {}
+	Game.Rooms = {}
 	for i = 1, 8 do
-		Games[i] = Button:new{x=150, y = 160+40*i, w = 500, h = 30, colorBG = 0xFFFFFAF0, colorText = 0xBB000000, text = i, fontName="Lucida Console", state = false}
+		Game.Rooms[i] = Button:new{x=150, y = 160+40*i, w = 500, h = 30, colorBG = 0xFFFFFAF0, colorText = 0xBB000000, text = "LOADING", fontName="Lucida Console", state = false}
 	end
 	RequestLobbyData()
 	
@@ -116,12 +167,13 @@ function Lobby()
 		Exit:Remove()
 		Stats:Remove()
 		for i = 1, 8 do
-			Games[i]:Remove()
+			Game.Rooms[i]:Remove()
 		end
+		Game.Rooms = nil
 	end
 	
 	local refresh = 0
-	while true do 
+	while Game.state == "lobby" do 
 		--STUFF
 		if Exit:Clicked() then
 			CleanUp()
@@ -131,13 +183,17 @@ function Lobby()
 			return "stats"
 		end
 		
+		for i=1, 8 do
+			if Game.Rooms[i].state ~= 2 and Game.Rooms[i]:Clicked() then
+				ConnectToGame(i)
+			end
+		end
 		refresh = refresh + 1
 		
 		if refresh>20 then -- refresh every ~ 2 sec
 			refresh = 0
 			RequestLobbyData()
 		end
-		
 		
 		Engine.SleepRoutine(100)
 	end
@@ -180,24 +236,29 @@ function GameScreen()
 	end
 end
 
-
-
 --Main
 function ConnectToServer(hostname, port)
-
+	local sock = GameClientSocket:new{}
+	local err = sock:Connect(hostname, port)
+	if err then 
+		--socket cleanup here?
+		return nil, err
+	end
+	return sock, err
 end
 
 function LoginServer(username, password)
-
+	Game.socket:Send(SerializeMessage("Login", username, password))
 end
 
 --Lobby
 function RequestLobbyData()
-
+	Game.socket:Send(SerializeMessage("ListGames"))
 end
 
 function ConnectToGame(gameID)
-
+	print("Connect me to", gameID)
+	Game.socket:Send(SerializeMessage("JoinRoom", gameID))
 end
 
 --Game
