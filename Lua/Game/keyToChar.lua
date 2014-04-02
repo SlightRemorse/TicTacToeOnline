@@ -1,4 +1,4 @@
-KeyMap = 
+local KeyMap = 
 {
 	[16] = 'q',
 	[17] = 'w',
@@ -34,31 +34,56 @@ KeyMap =
 	
 }
 
-local KeyPressMap = {}
+local KeyMaskMap = {}
 
-local __LastInput = 0
+local LastInput = nil
 function GetCharInput()
 	local _, caps = Engine.GetKeyState(58)
 	if Engine.GetKeyState(42) or Engine.GetKeyState(54) then
 		caps = not caps
 	end
+	if caps then caps = 1 else caps = 0 end
+	
+	local input = nil
+	local ch
 	
 	for k, v in pairs(KeyMap) do
 		if Engine.GetKeyState(k) then
-			
-			KeyPressMap[k] = true
+			if not KeyMaskMap[k] then
+				
+				if k~=57 then
+					ch = string.char(string.byte(v)-32*caps)
+				else
+					ch = string.char(string.byte(v))
+				end
+				
+				if not input then 
+					input = ch 
+				else
+					input = input .. ch
+				end
+				
+				LastInput = k
+			end
+			KeyMaskMap[k] = true
 			
 			if k == 14 then
 				return -1
 			end
-			if caps and k ~= 57 then
-				return string.char(string.byte(v)-32)
-			else
-				return string.char(string.byte(v))
-			end
+			
 		else
-			KeyPressMap[k] = false
+			if k == LastInput then LastInput = nil end
+			KeyMaskMap[k] = false
 		end
 	end
-	return nil
+	ch = KeyMap[LastInput]
+	if ch then
+		if k~=57 then
+			ch = string.char(string.byte(KeyMap[LastInput])-32*caps)
+		else
+			ch = string.char(string.byte(KeyMap[LastInput]))
+		end
+	end
+	if KeyMaskMap[14] then return -1 end -- backspace
+	return input or ch
 end

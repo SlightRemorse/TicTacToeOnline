@@ -15,6 +15,11 @@ Engine.Class.Button =
 	fontName = "Arial",
 	colorText = 0xFFFFFFFF,
 	
+	Remove = function(self)
+		self.__rect:Remove()
+		self.__text:Remove()
+	end,
+	
 	Update = function(self)
 		self.__rect.x = self.x
 		self.__rect.y = self.y
@@ -61,7 +66,9 @@ Engine.Class.TextField =
 {
 	__rect = false,
 	__text = false,
+	
 	__quit = false,
+	__prevButtonState = false,
 	
 	x = 0.0,
 	y = 0.0,
@@ -69,10 +76,17 @@ Engine.Class.TextField =
 	h = 0.0,
 	colorBG = 0xFFFFFFFF,
 	
-	Focus = false,
+	Focused = false,
+	
 	text = false,
 	fontName = "Arial",
 	colorText = 0xFF000000,
+	
+	Remove = function(self)
+		self.__quit = true
+		self.__rect:Remove()
+		self.__text:Remove()
+	end,
 	
 	Update = function(self)
 		__rect.x = self.x
@@ -115,41 +129,38 @@ Engine.Class.TextField =
 		self.__text = BaseText:new{x=self.x, y=self.y, w=self.w, h=self.h, fontName = self.fontName, fontSize = (self.h*0.8), align = "m", text = self.text, color = self.colorText}
 		
 		Engine.CreateRoutine(function()
-			local lastKey = false
-			local first = false
+			local LastKey = nil
 			while true do
-				local ch = GetCharInput()
-				
-				if ch then
-					if ch == lastKey then
-						if first then
-							Engine.SleepRoutine(125)
-							first = false
-						else
-							Engine.SleepRoutine(75)
+				if self.Focused then
+					local ch = GetCharInput()
+					if ch then
+						if string.char(string.byte(ch)+32) == LastKey or string.char(string.byte(ch)-32) == LastKey  then 
+							ch = LastKey 
 						end
-						ch = false
 					end
-					if ch and self.Focus then
-						if ch == -1 then
-							local txt = self.__text.text
-							local strlen = string.len(txt) -1
-							
-							if strlen < 0 then strlen = 0 end
-							
-							txt = string.sub(txt, 1, strlen)
-							self.__text.text = txt
+					if ch and ch ~= LastKey then
+						if ch == -1  then
+							if self.__text.text then
+								local newlen = string.len(self.__text.text)-1
+								if newlen <= 0 then 
+									self.__text.text = false
+								else
+									self.__text.text = string.sub(self.__text.text, 1, newlen)
+								end
+							end
 						else
-							self.__text.text = self.__text.text .. ch
+							if self.__text.text then
+								self.__text.text = self.__text.text .. ch
+							else
+								self.__text.text = ch
+							end
 						end
+						self.text = self.__text.text
 						self.__text:Update()
 					end
-					
-					if self.__quit then return end
-					
-					if lastKey ~= ch then first = true end
-					lastKey = ch
+					LastKey = ch
 				end
+				if self.__quit then return end
 				Engine.SleepRoutine(20)
 			end
 		end)
