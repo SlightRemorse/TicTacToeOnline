@@ -99,10 +99,10 @@ function SerializeGame(game)
 	local str = {}
 	str[1] = "TempTable = {"
 	
-	str[2] = "\t Player1 = " .. game.Player1.user .. ","
-	str[3] = "\t Player2 = " .. game.Player2.user .. ","
+	str[2] = "\t Player1 = \"" .. game.Player1.user .. "\","
+	str[3] = "\t Player2 = \"" .. game.Player2.user .. "\","
 	
-	str[4] = "\t state = " .. game.state .. ","
+	str[4] = "\t state = \"" .. game.state .. "\","
 	str[5] = "\t turn = " .. game.turn .. ","
 
 	local spot = 5

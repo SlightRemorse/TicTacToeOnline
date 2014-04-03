@@ -128,6 +128,34 @@ function GameClientSocket:onReceive(msg)
 		end
 		
 		Game.state = "lobby"
+	elseif cmd == "GetHistory" then
+		if Game.state ~= "lobby" then
+			print("Disconnecting!")
+			self:Disconnect()
+			Game.state = nil
+			return
+		end
+		if not args then args = {} end
+		Game.OldGames = args
+		Game.state = "stats"
+	elseif cmd == "Request" then
+		if Game.state ~= "stats" then
+			print("Disconnecting!")
+			self:Disconnect()
+			Game.state = nil
+			return
+		end
+		if not args then 
+			Game.Replay = false 
+		else
+			TempTable = false
+			local chunk = loadstring("TempTable = " .. args[1])
+			if chunk then chunk() end
+			Game.Replay = TempTable
+		end
+		if Game.Replay then
+			Game.state = "watch"
+		end
 	end
 end
 
@@ -135,7 +163,7 @@ function GameClientSocket:onConnect()
 	print("Connected to server!")
 end
 
-function Client() -- rename to Client later on :)
+function Client()
 	Engine.SetWindowTitle("Tic Tac Toe Online v0")
 	
 	Game.state = "login" -- default is login
@@ -159,6 +187,10 @@ function Client() -- rename to Client later on :)
 			Game.state = Lobby()
 		elseif Game.state == "game" then
 			Game.state = GameScreen()
+		elseif Game.state == "stats" then
+			Game.state = History()
+		elseif Game.state == "watch" then
+			Game.state = WatchGame()
 		else
 			return
 		end
@@ -266,8 +298,8 @@ function Lobby()
 			CleanUp()
 			return nil
 		elseif Stats:Clicked() and not Game.TryJoin then
-			CleanUp()
-			return "stats"
+			RequestGameList()
+			refresh = -15
 		end
 		
 		for i=1, 8 do
@@ -285,7 +317,6 @@ function Lobby()
 		
 		Engine.SleepRoutine(100)
 	end
-	
 	CleanUp()
 	return Game.state
 end
@@ -461,6 +492,170 @@ function SendMove(moveInfo)
 end
 
 --Stats
-function RequestGameList(span)
-	Game.socket:Send(SerializeMessage("GetHistory")
+function RequestGameList()
+	Game.socket:Send(SerializeMessage("GetHistory"))
+end
+
+function RequestGame(id)
+	Game.socket:Send(SerializeMessage("Request", id))
+end
+
+function History()
+	local Banner = {}
+	Banner.large = BaseText:new{x = 0, w = 800, y = 20, h = 100, align = "c", fontSize=75, text=Game.user.."'s", color = 0xFF483D8B}
+	Banner.small = BaseText:new{x = 0, w = 800, y = 130, h = 70, align = "cm", fontSize=45, text="History", color = 0xFFAA99CC}
+	local Exit = Button:new{x = 650, y=550, w = 120, h = 30, colorBG = 0xFF8800AA, colorText = 0xAAFFFFFF, text="Exit", fontName="Lucida Console"}
+	
+	local Day = Button:new{x = 200, y=550, w = 120, h = 30, colorBG = 0xFFAA0088, colorText = 0xAAFFFFFF, text="Daily", fontName="Lucida Console"}
+	local Hour = Button:new{x = 340, y=550, w = 120, h = 30, colorBG = 0xFFAA0088, colorText = 0xAAFFFFFF, text="Hourly", fontName="Lucida Console"}
+	local All = Button:new{x = 480, y=550, w = 120, h = 30, colorBG = 0xFFAA0088, colorText = 0xAAFFFFFF, text="All", fontName="Lucida Console"}
+	
+	Game.Rooms = {}
+	for i = 1, 8 do
+		Game.Rooms[i] = Button:new{x=150, y = 160+40*i, w = 500, h = 30, colorBG = 0xFFFFFAF0, colorText = 0xBB000000, text = "LOADING", fontName="Lucida Console", state = false}
+	end
+	
+	local CleanUp = function()
+		Banner.large:Remove()
+		Banner.small:Remove()
+		Exit:Remove()
+		
+		Day:Remove()
+		Hour:Remove()
+		All:Remove()
+		
+		for i = 1, 8 do
+			Game.Rooms[i]:Remove()
+		end
+		Game.Rooms = nil
+	end
+	
+	for i = 1, 8 do
+			Game.Rooms[i].text = Game.OldGames[i]
+			Game.Rooms[i]:Update()
+	end
+	
+	local Filter = false
+	
+	local refresh = 0
+	while Game.state == "stats" do 
+		--STUFF
+		if Exit:Clicked() then
+			CleanUp()
+			return nil
+		end
+		
+		if Day:Clicked() then
+			Filter = os.date("games/%y%m%d")
+			local it = 1
+			local i = 1
+			while i < 9 and it <= #Game.OldGames do
+				local found = string.find(Game.OldGames[it], Filter)
+				if found == 1 then
+					Game.Rooms[i].text = Game.OldGames[it]
+					Game.Rooms[i]:Update()
+					i = i + 1
+				end
+				it = it + 1
+			end
+			for n = i, 8 do
+				Game.Rooms[i].text = false
+				Game.Rooms[i]:Update()
+			end
+		end
+		if Hour:Clicked() then
+			Filter = os.date("games/%y%m%d%H")
+			local it = 1
+			local i = 1
+			while i < 8 and it <= #Game.OldGames do
+				local found = string.find(Game.OldGames[it], Filter)
+				if found == 1 then
+					Game.Rooms[i].text = Game.OldGames[it]
+					Game.Rooms[i]:Update()
+					i = i + 1
+				end
+				it = it + 1
+			end
+			for n = i, 8 do
+				Game.Rooms[n].text = false
+				Game.Rooms[n]:Update()
+			end
+		end
+		if All:Clicked() then
+			for i = 1, 8 do
+				Game.Rooms[i].text = Game.OldGames[i]
+				Game.Rooms[i]:Update()
+			end
+		end
+		
+		
+		
+		for i=1, 8 do
+			if Game.Rooms[i].text and Game.Rooms[i]:Clicked() then
+				RequestGame(Game.Rooms[i].text)
+			end
+		end
+		
+		Engine.SleepRoutine(100)
+	end
+	
+	CleanUp()
+	return Game.state
+end
+
+function WatchGame()
+	local Player = {}
+	Player[1] = BaseText:new{x=50, y = 80, w = 200, h = 30, align = "cm", fontSize=25, text=Game.Replay.Player1}
+	Player[2] = BaseText:new{x=550, y = 80, w = 200, h = 30, align = "cm", fontSize=25, text=Game.Replay.Player2}
+	local StatusMsg = BaseText:new{x=300, y = 50, w = 200, h = 30, align = "cm", fontSize=25}
+	local Objects = {}
+	Objects[1] = BaseSprite:new{x=100, y = 150, w = 100, h = 100, texture="assets/X.png"}
+	Objects[2] = BaseSprite:new{x=600, y = 150, w = 100, h = 100, texture="assets/O.png"}
+	
+	local line = {}
+	line[1] = BaseLine:new{x1=250, x2=550, y1=250, y2=250}
+	line[2] = BaseLine:new{x1=250, x2=550, y1=350, y2=350}
+	line[3] = BaseLine:new{x1=350, x2=350, y1=150, y2=450}
+	line[4] = BaseLine:new{x1=450, x2=450, y1=150, y2=450}
+	
+	local spots = {}
+	for i = 1, 9 do
+		spots[i] = BaseSprite:new{x = FieldSpots[i].x1, y = FieldSpots[i].y1, w = 100, h = 100, texture=false, state = false}
+	end
+	
+	local CleanUp = function()
+		Player[1]:Remove()
+		Player[2]:Remove()
+		Objects[1]:Remove()
+		Objects[2]:Remove()
+		StatusMsg:Remove()
+		for i=1,4 do line[i]:Remove() end
+		for i = 1, 9 do spots[i]:Remove() end
+	end
+	
+	for i=1, #Game.Replay do
+		--play a move
+		Engine.SleepRoutine(1500)
+		local t = Game.Replay[i]
+		StatusMsg.text = i
+		StatusMsg:Update()
+		if t.Player == "o" then 
+			spots[t.Spot].texture = "assets/O.png"
+			spots[t.Spot]:Update()
+		else
+			spots[t.Spot].texture = "assets/X.png"
+			spots[t.Spot]:Update()
+		end
+	end
+	if Game.Replay.State == "draw" then
+		StatusMsg.text = "DRAW"
+	else
+		print(Game.Replay.turn)
+		StatusMsg.text = Player[Game.Replay.turn].text .. " WINS!"
+	end
+		StatusMsg:Update()
+		
+	Engine.SleepRoutine(2000)
+	CleanUp()
+	return "stats" 
 end

@@ -53,6 +53,8 @@ function GameServerSocket:onDisconnect()
 			Server.Rooms[self.gameID].Player1.state = "lobby"
 			Server.Rooms[self.gameID] = false
 		end
+	elseif self.state == "stats" then
+		--nothing to clean up
 	end
 end
 
@@ -223,6 +225,35 @@ function GameServerSocket:onReceive(msg)
 			Server.Rooms[self.gameID] = false
 		end
 		
+	elseif cmd == "GetHistory" then
+		if self.state ~= "lobby" or args  then
+			print("Disconnecting!")
+			print(self:Disconnect())
+			return
+		end
+		
+		self.state = "stats"
+		local ut = Users[self.user]
+		local t = {}
+		
+		for i = 1, #ut do
+			t[i] = ut[i]
+		end
+		self:Send(SerializeMessage("GetHistory", t))
+	
+	elseif cmd == "Request" then
+		if self.state ~= "stats" or not args  then
+			print("Disconnecting!")
+			print(self:Disconnect())
+			return
+		end
+		local exists = GetGame(args[1])
+		
+		if exists then
+			self:Send(SerializeMessage("Request", SerializeTable(TempTable)))
+		else
+			self:Send(SerializeMessage("Request"))
+		end
 	end
 end
 
@@ -281,7 +312,6 @@ function GetUsers()
 end
 
 function SaveUsers(str)
-	for i=1, #str do print(str[i]) end
 	local file = io.open("Users.txt", "w")
 	if file then
 		for i=1, #str do
@@ -290,6 +320,20 @@ function SaveUsers(str)
 		file:flush()
 		file:close()
 	end
+end
+
+function GetGame(name)
+	TempTable = nil
+	local chunk, err = loadfile(name)
+	
+	if chunk then
+		chunk()
+	end
+	
+	if type(TempTable) ~= "table" then
+		return false
+	end
+	return true
 end
 
 function SaveGame(str)
