@@ -6,6 +6,11 @@ local Game = {}
 Game.hostname = "localhost"
 Game.port = "5150"
 
+function GameClientSocket:onDisconnect()
+	print("Lost connected to server. Shutting down!")
+	Game.state = nil
+end
+
 function GameClientSocket:onReceive(msg)
 	local cmd, args = DeserializeMessage(msg)
 	print("Command:", cmd)
@@ -15,7 +20,8 @@ function GameClientSocket:onReceive(msg)
 	
 	if cmd == "Login" then
 		if Game.state ~= "login" or not args then
-			print("DISCONNECT HIM!")
+			print("Disconnecting!")
+			self:Disconnect()
 			Game.state = nil
 			return
 		end
@@ -26,7 +32,7 @@ function GameClientSocket:onReceive(msg)
 			print("Connection:", args[1])
 		end	
 	elseif cmd == "ListGames" then
-		if Game.state ~= "lobby" or not args then
+		if Game.state ~= "lobby" or not args then	
 			print("DISCONNECT HIM!")
 			return
 		end
@@ -39,11 +45,89 @@ function GameClientSocket:onReceive(msg)
 		
 	elseif cmd == "JoinRoom" then
 		if Game.state ~= "lobby" or not args  then
-			print("DISCONNECT HIM!")
+			print("Disconnecting!")
+			self:Disconnect()
+			Game.state = nil
 			return
 		end
 		
-		--SOLVE :3
+		if args[1] == "host" then
+			Game.state = "game"
+			Game.you = 1
+			Game.game = CreateGame()
+			Game.game.Player1 = Game.user
+			Game.game.Player2 = ""
+		elseif args[1] == "join" then
+			Game.state = "game"
+			Game.you = 2
+			Game.game = CreateGame()
+			Game.game.Player1 = args[2]
+			Game.game.Player2 = Game.user
+		else -- full game
+			print("Game is full!")
+		end
+		
+		Game.TryJoin = false
+
+	elseif cmd == "PlayerJoined" then
+		if Game.state ~= "game" or not args  then
+			print("Disconnecting!")
+			self:Disconnect()
+			Game.state = nil
+			return
+		end
+		Game.game.Player2 = args[1]
+	elseif cmd == "rageQuit" then
+		if Game.state ~= "game" or args  then
+			print("Disconnecting!")
+			self:Disconnect()
+			Game.state = nil
+			return
+		end
+		Game.game = cmd
+		Game.state = "lobby"
+	elseif cmd == "Start" then
+		if Game.state ~= "game" or not args  then
+			print("Disconnecting!")
+			self:Disconnect()
+			Game.state = nil
+			return
+		end
+		
+		local first = tonumber(args[1])
+		if first == 1 then
+			Game.game.turn = 1
+		else
+			Game.game.turn = 2
+		end
+	elseif cmd == "Move" then
+		if Game.state ~= "game" or not args  then
+			print("Disconnecting!")
+			self:Disconnect()
+			Game.state = nil
+			return
+		end
+		
+		local spot = tonumber(args[2])
+		Game.game[spot] = args[1]
+		if Game.game.turn == 1 then Game.game.turn = 2 else Game.game.turn = 1 end
+	elseif cmd == "End" then
+		if Game.state ~= "game" or not args  then
+			print("Disconnecting!")
+			self:Disconnect()
+			Game.state = nil
+			return
+		end
+		
+		if (args[1] == "o" and Game.you == 2) or (args[1] == "x" and Game.you == 1) then
+			Game.game = "win"
+		elseif	(args[1] == "o" and Game.you == 1) or (args[1] == "x" and Game.you == 2) then
+			Game.game = "lose"
+		elseif args[1] == "draw" then
+			Game.game = args[1]
+		end
+		
+		Game.state = "lobby"
 	end
 end
 
@@ -144,6 +228,8 @@ function LoginScreen()
 		end
 		Engine.SleepRoutine(100)
 	end
+	Game.user = Username.field.text
+	Engine.SetWindowTitle("Tic Tac Toe Online v0 User: " .. Game.user)
 	CleanUp()
 	return Game.state
 end
@@ -156,6 +242,7 @@ function Lobby()
 	local Stats = Button:new{x = 500, y=550, w = 120, h = 30, colorBG = 0xFFAA0088, colorText = 0xAAFFFFFF, text="History", fontName="Lucida Console"}
 	
 	Game.Rooms = {}
+	Game.TryJoin = false
 	for i = 1, 8 do
 		Game.Rooms[i] = Button:new{x=150, y = 160+40*i, w = 500, h = 30, colorBG = 0xFFFFFAF0, colorText = 0xBB000000, text = "LOADING", fontName="Lucida Console", state = false}
 	end
@@ -178,7 +265,7 @@ function Lobby()
 		if Exit:Clicked() then
 			CleanUp()
 			return nil
-		elseif Stats:Clicked() then
+		elseif Stats:Clicked() and not Game.TryJoin then
 			CleanUp()
 			return "stats"
 		end
@@ -186,32 +273,46 @@ function Lobby()
 		for i=1, 8 do
 			if Game.Rooms[i].state ~= 2 and Game.Rooms[i]:Clicked() then
 				ConnectToGame(i)
+				refresh = 0 -- make sure we don't do 2 requests simultaneously
 			end
 		end
 		refresh = refresh + 1
 		
-		if refresh>20 then -- refresh every ~ 2 sec
+		if refresh>20 and not Game.TryJoin then -- refresh every ~ 2 sec
 			refresh = 0
 			RequestLobbyData()
 		end
 		
 		Engine.SleepRoutine(100)
 	end
+	
+	CleanUp()
+	return Game.state
 end
 
 local FieldSpots = {
-			[0] = {x1 = 250, x2=350, y1 = 150, y2 = 250},
-			[1] = {x1 = 350, x2=450, y1 = 150, y2 = 250},
-			[2] = {x1 = 450, x2=550, y1 = 150, y2 = 250},
+			[1] = {x1 = 250, x2=350, y1 = 150, y2 = 250},
+			[2] = {x1 = 350, x2=450, y1 = 150, y2 = 250},
+			[3] = {x1 = 450, x2=550, y1 = 150, y2 = 250},
 
-			[3] = {x1 = 250, x2=350, y1 = 250, y2 = 350},
-			[4] = {x1 = 350, x2=450, y1 = 250, y2 = 350},
-			[5] = {x1 = 500, x2=550, y1 = 250, y2 = 350},
+			[4] = {x1 = 250, x2=350, y1 = 250, y2 = 350},
+			[5] = {x1 = 350, x2=450, y1 = 250, y2 = 350},
+			[6] = {x1 = 450, x2=550, y1 = 250, y2 = 350},
 
-			[6] = {x1 = 250, x2=350, y1 = 350, y2 = 450},
-			[7] = {x1 = 350, x2=450, y1 = 350, y2 = 450},
-			[8] = {x1 = 450, x2=550, y1 = 350, y2 = 450},
+			[7] = {x1 = 250, x2=350, y1 = 350, y2 = 450},
+			[8] = {x1 = 350, x2=450, y1 = 350, y2 = 450},
+			[9] = {x1 = 450, x2=550, y1 = 350, y2 = 450},
 }
+
+function Clicked()
+	local x, y = Engine.GetMousePos(true)
+	for i=1, 9 do
+		if x >= FieldSpots[i].x1 and x <=FieldSpots[i].x2 and y >=FieldSpots[i].y1 and y <=FieldSpots[i].y2 then
+			return i
+		end
+	end
+	return false
+end
 
 function GameScreen()
 	local StatusMsg = BaseText:new{x=300, y = 50, w = 200, h = 30, align = "cm", fontSize=25, text="COUNT"}
@@ -222,18 +323,110 @@ function GameScreen()
 	Objects[1] = BaseSprite:new{x=100, y = 150, w = 100, h = 100, texture="assets/X.png"}
 	Objects[2] = BaseSprite:new{x=600, y = 150, w = 100, h = 100, texture="assets/O.png"}
 	
-	local fields = {}
-	fields[1] = BaseLine:new{x1=250, x2=550, y1=250, y2=250}
-	fields[2] = BaseLine:new{x1=250, x2=550, y1=350, y2=350}
-	fields[3] = BaseLine:new{x1=350, x2=350, y1=150, y2=450}
-	fields[4] = BaseLine:new{x1=450, x2=450, y1=150, y2=450}
+	local line = {}
+	line[1] = BaseLine:new{x1=250, x2=550, y1=250, y2=250}
+	line[2] = BaseLine:new{x1=250, x2=550, y1=350, y2=350}
+	line[3] = BaseLine:new{x1=350, x2=350, y1=150, y2=450}
+	line[4] = BaseLine:new{x1=450, x2=450, y1=150, y2=450}
 	
+	local spots = {}
+	for i = 1, 9 do
+		spots[i] = BaseSprite:new{x = FieldSpots[i].x1, y = FieldSpots[i].y1, w = 100, h = 100, texture=false, state = false}
+	end
 	
-	while true do 
+	local CleanUp = function()
+		StatusMsg:Remove()
+		Player[1]:Remove()
+		Player[2]:Remove()
+		Objects[1]:Remove()
+		Objects[2]:Remove()
+		for i=1,4 do line[i]:Remove() end
+		for i = 1, 9 do spots[i]:Remove() end
+	end
+	
+	local prevState
+	local lastTurn
+	while Game.state == "game" do 
 		--STUFF
+		if Player[1].text ~= Game.game.Player1 then
+			Player[1].text = Game.game.Player1
+			Player[1]:Update()
+		end
+		if Player[2].text ~= Game.game.Player2 then
+			Player[2].text = Game.game.Player2
+			Player[2]:Update()
+		end
 		
+		for i = 1, 9 do 
+			if Game.game[i] ~= spots[i].state then
+				spots[i].state = Game.game[i]
+				if Game.game[i] == "o" then
+					spots[i].texture = "assets/O.png"
+				elseif Game.game[i] == "x" then
+					spots[i].texture = "assets/X.png"
+				else
+					spots[i].texture = false
+				end
+				spots[i]:Update()
+			end
+		end
+		
+		
+		if Game.game.turn == 1 then
+			Player[1].color = 0xFF00FF00
+			Player[2].color = 0xFFFFFFFF
+		elseif Game.game.turn == 2 then
+			Player[2].color = 0xFF00FF00
+			Player[1].color = 0xFFFFFFFF
+		else
+			Player[2].color = 0xFFFFFFFF
+			Player[1].color = 0xFFFFFFFF
+		end
+		if lastTurn ~= Game.game.turn then
+			Player[1]:Update()
+			Player[2]:Update()
+		end
+		
+		lastTurn = Game.game.turn
+		
+		local key = false
+		if Game.game.turn == Game.you then
+			local KeyState = Engine.GetButtonState(1)
+			
+			if KeyState and KeyState ~= prevState then
+				key = Clicked()
+			end
+			prevState = KeyState
+		end
+		if key then
+			SendMove(key)
+		end
 		Engine.SleepRoutine(100)
 	end
+	
+	CleanUp()
+	if Game.game == "rageQuit" then
+		local RQ = Button:new{x=200, y = 200, w = 400, h = 50, colorBG = 0xFFFF0000, 
+							colorText = 0xFF000000, fontName="Lucida Console", text="RAGE QUIT"}
+		Engine.SleepRoutine(5000)
+		RQ:Remove()
+	elseif Game.game == "win" then
+		local RQ = Button:new{x=200, y = 200, w = 400, h = 50, colorBG = 0xFF00FF00, 
+							colorText = 0xFF000000, fontName="Lucida Console", text="YOU WIN"}
+		Engine.SleepRoutine(5000)
+		RQ:Remove()
+	elseif Game.game == "lose" then
+		local RQ = Button:new{x=200, y = 200, w = 400, h = 50, colorBG = 0xFFFF0000, 
+							colorText = 0xFF000000, fontName="Lucida Console", text="YOU LOSE"}
+		Engine.SleepRoutine(5000)
+		RQ:Remove()
+	elseif Game.game == "draw" then
+		local RQ = Button:new{x=200, y = 200, w = 400, h = 50, colorBG = 0xFFFF00FF, 
+							colorText = 0xFF000000, fontName="Lucida Console", text="DRAW"}
+		Engine.SleepRoutine(5000)
+		RQ:Remove()
+	end
+	return Game.state
 end
 
 --Main
@@ -258,12 +451,13 @@ end
 
 function ConnectToGame(gameID)
 	print("Connect me to", gameID)
+	Game.TryJoin = gameID
 	Game.socket:Send(SerializeMessage("JoinRoom", gameID))
 end
 
 --Game
 function SendMove(moveInfo)
-
+	Game.socket:Send(SerializeMessage("Move", moveInfo))
 end
 
 --Stats

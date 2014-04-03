@@ -11,6 +11,29 @@ function GameServerSocket:onConnect()
 	self.state = "login"
 end
 
+function GameServerSocket:onDisconnect()
+	print("Disconnected!", self.state)
+	if self.state == "login" then
+		--nothing to clean up
+	elseif self.state == "lobby" then
+		--nothing to clean up
+	elseif self.state == "game" then
+		if Server.Rooms[self.gameID].Player1 == self then
+			--host left
+			if Server.Rooms[self.gameID].Player2 then
+				Server.Rooms[self.gameID].Player2:Send(SerializeMessage("rageQuit"))
+				Server.Rooms[self.gameID].Player2.state = "lobby"
+			end
+			Server.Rooms[self.gameID] = false
+		else
+			--player 2 left
+			Server.Rooms[self.gameID].Player1:Send(SerializeMessage("rageQuit"))
+			Server.Rooms[self.gameID].Player1.state = "lobby"
+			Server.Rooms[self.gameID] = false
+		end
+	end
+end
+
 function GameServerSocket:onReceive(msg)
 	local cmd, args = DeserializeMessage(msg)
 	print("Command:", cmd)
@@ -20,7 +43,8 @@ function GameServerSocket:onReceive(msg)
 	
 	if cmd == "Login" then
 		if self.state ~= "login" or not args  then
-			print("DISCONNECT HIM!")
+			print("Disconnecting!")
+			print(self:Disconnect())
 			return
 		end
 		
@@ -43,7 +67,8 @@ function GameServerSocket:onReceive(msg)
 		end
 	elseif cmd == "ListGames" then
 		if self.state ~= "lobby" or args  then
-			print("DISCONNECT HIM!")
+			print("Disconnecting!")
+			print(self:Disconnect())
 			return
 		end
 		
@@ -52,10 +77,10 @@ function GameServerSocket:onReceive(msg)
 			if Server.Rooms[i] then
 				if Server.Rooms[i].Player2 then
 					result[2*i-1] = 2
-					result[2*i] = Server.Rooms[i].Player1 .. " vs " .. Server.Rooms[i].Player2
+					result[2*i] = Server.Rooms[i].Player1.user .. " vs " .. Server.Rooms[i].Player2.user
 				else
 					result[2*i-1] = 1
-					result[2*i] = Server.Rooms[i].Player1 .. " vs you?"
+					result[2*i] = Server.Rooms[i].Player1.user .. " vs you?"
 				end
 			else
 				result[2*i-1] = 0
@@ -67,26 +92,120 @@ function GameServerSocket:onReceive(msg)
 		
 	elseif cmd == "JoinRoom" then
 		if self.state ~= "lobby" or not args  then
-			print("DISCONNECT HIM!")
+			print("Disconnecting!")
+			print(self:Disconnect())
 			return
 		end
-		
-		if not Server.Rooms[i] then
+		local id = tonumber(args[1]) -- we receive it as string, but need it as number
+		if not Server.Rooms[id] then
 			--Create game
-			self:Send(SerializeMessage("JoinRoom", 1))
-		elseif not Server.Rooms[i].Player2 then
+			self.state = "game"
+			self.gameID = id
+			self:Send(SerializeMessage("JoinRoom", "host"))
+			Server.Rooms[id] = CreateGame()
+			Server.Rooms[id].Player1 = self
+			
+		elseif not Server.Rooms[id].Player2 then
 			--Join Game
-			self:Send(SerializeMessage("JoinRoom", 2))
+			self.state = "game"
+			self.gameID = id
+			self:Send(SerializeMessage("JoinRoom", "join", Server.Rooms[id].Player1.user))
+			Server.Rooms[id].Player2 = self
+			
+			--notify the other player
+			Server.Rooms[id].Player1:Send(SerializeMessage("PlayerJoined", self.user))
+			
+			--Choose who's first
+			local first = Engine.Random(1,2)
+			if first == 1 then
+				Server.Rooms[id].Player1:Send(SerializeMessage("Start", 1))
+				Server.Rooms[id].Player2:Send(SerializeMessage("Start", 1))
+			else
+				Server.Rooms[id].Player1:Send(SerializeMessage("Start", 2))
+				Server.Rooms[id].Player2:Send(SerializeMessage("Start", 2))
+			end
+			Server.Rooms[id].state = "play"
+			Server.Rooms[id].turn = first
 		else
 			--Error, maybe you got raced, don't DC
 			self:Send(SerializeMessage("JoinRoom", "failed"))
 		end
+	elseif cmd == "Move" then
+		if self.state ~= "game" or not args  then
+			print("Disconnecting!")
+			print(self:Disconnect())
+			return
+		end
+		
+		if self == Server.Rooms[self.gameID].Player1 then
+			if Server.Rooms[self.gameID].turn == 1 then
+				local spot = tonumber(args[1])
+				if not Server.Rooms[self.gameID][spot] then
+					local th = Server.Rooms[self.gameID].History
+					
+					th[#th + 1] = { Player = "x", Spot = spot}
+					
+					Server.Rooms[self.gameID][spot] = "x"
+					Server.Rooms[self.gameID].turn = 2
+					
+					Server.Rooms[self.gameID].Player1:Send(SerializeMessage("Move", "x", spot))
+					Server.Rooms[self.gameID].Player2:Send(SerializeMessage("Move", "x", spot))
+				end
+			end
+		elseif self == Server.Rooms[self.gameID].Player2 then
+			if Server.Rooms[self.gameID].turn == 2 then
+				local spot = tonumber(args[1])
+				if not Server.Rooms[self.gameID][spot] then
+					local th = Server.Rooms[self.gameID].History
+					
+					th[#th + 1] = { Player = "o", Spot = spot}
+					
+					Server.Rooms[self.gameID][spot] = "o"
+					Server.Rooms[self.gameID].turn = 1
+					
+					Server.Rooms[self.gameID].Player1:Send(SerializeMessage("Move", "o", spot))
+					Server.Rooms[self.gameID].Player2:Send(SerializeMessage("Move", "o", spot))
+				end
+			end
+		end
+		
+		local eval = EvaluateGame(Server.Rooms[self.gameID])
+		
+		if eval then
+			Server.Rooms[self.gameID].Player1:Send(SerializeMessage("End", eval))
+			Server.Rooms[self.gameID].Player1.state = "lobby"
+			Server.Rooms[self.gameID].Player2:Send(SerializeMessage("End", eval))
+			Server.Rooms[self.gameID].Player2.state = "lobby"
+			
+			--RECORD HISTORY HERE
+			Server.Rooms[self.gameID] = false
+		end
+		
 	end
 end
 
+function EvaluateGame(game)
+	if #game.History == 9 then
+		return "draw"
+	end
+	
+	for i = 1, 3 do 
+		if game[i*3 - 2] == game[i*3 - 1] and game[i*3 - 1] == game[3*i] and game[i*3] ~= false then
+			print("THIS")
+			return game[i]
+		end
+		if game[i] == game[i + 3] and game[i + 3] == game[i + 6] and game[i] ~= false then
+			return game[i]
+		end
+	end
+	if (game[1] == game[5] and game[1] == game[9]) or
+		(game[3] == game[5] and game[5] == game[7]) then
+			return game[5]
+	end
+	return false
+end
 
-
-function GameServer() -- rename to Server later on :)
+function GameServer()
 	Engine.SetWindowTitle("Tic Tac Toe Server v0")
 	Engine.SetResolution(false, 100, 100)
 
@@ -119,7 +238,6 @@ function GetUsers()
 	if type(Users) ~= "table" then
 		Users = {}
 	end
-	print(Users, SerializeTable(Users))
 end
 
 function SaveUsers(str)
@@ -132,6 +250,31 @@ function SaveUsers(str)
 		file:flush()
 		file:close()
 	end
+end
+
+function CreateGame()
+	local t = {
+	Player1 = false,
+	Player2 = false,
+	
+	state = "wait",
+	
+	[1] = false,
+	[2] = false,
+	[3] = false,
+	
+	[4] = false,
+	[5] = false,
+	[6] = false,
+	
+	[7] = false,
+	[8] = false,
+	[9] = false,
+	
+	History = {}
+	}
+	
+	return t
 end
 
 --[[
