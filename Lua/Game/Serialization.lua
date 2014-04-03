@@ -94,3 +94,44 @@ function SerializeUsers(t)
 	
 	return str
 end
+
+function SerializeGame(game)
+	local str = {}
+	str[1] = "TempTable = {"
+	
+	str[2] = "\t Player1 = " .. game.Player1.user .. ","
+	str[3] = "\t Player2 = " .. game.Player2.user .. ","
+	
+	str[4] = "\t state = " .. game.state .. ","
+	str[5] = "\t turn = " .. game.turn .. ","
+
+	local spot = 5
+	for i=1 , #game.History do
+		str[spot+i] = "\t [" .. i .. "] = " .. SerializeTable(game.History[i]) .. ","
+	end
+	str[#str+1] = "}"
+	
+	return str
+end
+
+--[[
+Player1 = false,
+	Player2 = false,
+	
+	state = "wait",
+	
+	[1] = false,
+	[2] = false,
+	[3] = false,
+	
+	[4] = false,
+	[5] = false,
+	[6] = false,
+	
+	[7] = false,
+	[8] = false,
+	[9] = false,
+	
+	History = {}
+	}
+--]]

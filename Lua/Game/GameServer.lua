@@ -21,12 +21,34 @@ function GameServerSocket:onDisconnect()
 		if Server.Rooms[self.gameID].Player1 == self then
 			--host left
 			if Server.Rooms[self.gameID].Player2 then
+				Server.Rooms[self.gameID].state = "rageQuit"
+				Server.Rooms[self.gameID].turn = 2
+				
+				local filename = SaveGame(SerializeGame(Server.Rooms[self.gameID]))
+				local ut
+				ut = Users[Server.Rooms[self.gameID].Player1.user]
+				ut[#ut+1] = filename
+				ut = Users[Server.Rooms[self.gameID].Player2.user]
+				ut[#ut+1] = filename
+				SaveUsers(SerializeUsers(Users))
+				
 				Server.Rooms[self.gameID].Player2:Send(SerializeMessage("rageQuit"))
 				Server.Rooms[self.gameID].Player2.state = "lobby"
 			end
 			Server.Rooms[self.gameID] = false
 		else
 			--player 2 left
+			Server.Rooms[self.gameID].state = "rageQuit"
+			Server.Rooms[self.gameID].turn = 1
+			
+			local filename = SaveGame(SerializeGame(Server.Rooms[self.gameID]))
+			local ut
+			ut = Users[Server.Rooms[self.gameID].Player1.user]
+			ut[#ut+1] = filename
+			ut = Users[Server.Rooms[self.gameID].Player2.user]
+			ut[#ut+1] = filename
+			SaveUsers(SerializeUsers(Users))
+			
 			Server.Rooms[self.gameID].Player1:Send(SerializeMessage("rageQuit"))
 			Server.Rooms[self.gameID].Player1.state = "lobby"
 			Server.Rooms[self.gameID] = false
@@ -176,8 +198,28 @@ function GameServerSocket:onReceive(msg)
 			Server.Rooms[self.gameID].Player1.state = "lobby"
 			Server.Rooms[self.gameID].Player2:Send(SerializeMessage("End", eval))
 			Server.Rooms[self.gameID].Player2.state = "lobby"
-			
 			--RECORD HISTORY HERE
+			if eval == "draw" then
+				Server.Rooms[self.gameID].state = "draw"
+				Server.Rooms[self.gameID].turn = 0
+			else 
+				Server.Rooms[self.gameID].state = "win"
+				if eval == "o" then 
+					Server.Rooms[self.gameID].turn = 2 
+				else 
+					Server.Rooms[self.gameID].turn = 1 
+				end
+			end
+			
+			local filename = SaveGame(SerializeGame(Server.Rooms[self.gameID]))
+			local ut
+			ut = Users[Server.Rooms[self.gameID].Player1.user]
+			ut[#ut+1] = filename
+			ut = Users[Server.Rooms[self.gameID].Player2.user]
+			ut[#ut+1] = filename
+			SaveUsers(SerializeUsers(Users))
+			
+			
 			Server.Rooms[self.gameID] = false
 		end
 		
@@ -185,13 +227,8 @@ function GameServerSocket:onReceive(msg)
 end
 
 function EvaluateGame(game)
-	if #game.History == 9 then
-		return "draw"
-	end
-	
 	for i = 1, 3 do 
 		if game[i*3 - 2] == game[i*3 - 1] and game[i*3 - 1] == game[3*i] and game[i*3] ~= false then
-			print("THIS")
 			return game[i]
 		end
 		if game[i] == game[i + 3] and game[i + 3] == game[i + 6] and game[i] ~= false then
@@ -201,6 +238,9 @@ function EvaluateGame(game)
 	if (game[1] == game[5] and game[1] == game[9]) or
 		(game[3] == game[5] and game[5] == game[7]) then
 			return game[5]
+	end
+	if #game.History == 9 then
+		return "draw"
 	end
 	return false
 end
@@ -252,6 +292,35 @@ function SaveUsers(str)
 	end
 end
 
+function SaveGame(str)
+	local i = 1
+	local file = true
+	local newfile = false
+	
+	for i=1, #str do print(str[i]) end
+	
+	while file do
+		newfile = os.date("games/%y%m%d%H%M%S_".. i ..".gam")
+		file = io.open(newfile, "r")
+		i = i + 1
+		if file then 
+			file:close()
+		end
+	end
+	
+	file = io.open(newfile, "w")
+	if file then
+		for i=1, #str do
+			file:write(str[i] .. "\n")
+		end
+		file:flush()
+		file:close()
+		return newfile
+	end
+	
+	return nil
+end
+
 function CreateGame()
 	local t = {
 	Player1 = false,
@@ -276,22 +345,3 @@ function CreateGame()
 	
 	return t
 end
-
---[[
-Сървър сокета ще има специално дефиниран тип сокет, който разраства базовия и поддържа хункционалностите нужни за изпълнението на длъжностите си. Тук нещата ще разчитат още повече на OnReceive event-а и спрямо даден msg ще се изпълнява дадена функция.
-
-AuthenticatePlayer(socket, username); - когато msg-а сигнализира, че иска да се свърже с нас.
-ConnectPlayerToGame(socket, gameID); - връзва ни към играта
-ListGames(socket); - дава ни игрите
-
-AddMove(socket, moveInfo); - записва хода, праща го на другия играч като обновление и т.н.
-
-GetStats(socket, optional); - сървър страна на RequestStats(), която ще прегледа записаните до сега игри (най-вероятно в xml или друг лесен за четене формат)
-GetGameList(socket) - същото, но за RequestGameList()
-GetGame(socket, gameID); - ...
-
-
-
-OnDisconnect(); - ще се грижи при изключване на даден потребител да бъде спряна играта (ако е почната) или просто да се освободи сокета (ако няма нищо важно започнато)
-RecordGame(gameID); - ще записва дадената игра във файл.
---]]

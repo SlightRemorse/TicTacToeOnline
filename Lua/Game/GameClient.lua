@@ -461,14 +461,6 @@ function SendMove(moveInfo)
 end
 
 --Stats
-function RequestGameList()
-
+function RequestGameList(span)
+	Game.socket:Send(SerializeMessage("GetHistory")
 end
-
-function RequestGame(gameID)
-
-end
-
---[[
-
---]]
