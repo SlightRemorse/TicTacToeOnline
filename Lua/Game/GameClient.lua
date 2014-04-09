@@ -7,7 +7,7 @@ Game.hostname = "localhost"
 Game.port = "5150"
 
 function GameClientSocket:onDisconnect()
-	print("Lost connected to server. Shutting down!")
+	print("Lost connection to server. Shutting down!")
 	Game.state = nil
 end
 
@@ -292,9 +292,11 @@ function Lobby()
 	end
 	
 	local refresh = 0
+	local exitImmunity = true
+	Engine.CreateRoutine(function() Engine.SleepRoutine(1000) exitImmunity = false end)
 	while Game.state == "lobby" do 
 		--STUFF
-		if Exit:Clicked() then
+		if Exit:Clicked() and not exitImmunity then
 			CleanUp()
 			return nil
 		elseif Stats:Clicked() and not Game.TryJoin then
@@ -346,7 +348,7 @@ function Clicked()
 end
 
 function GameScreen()
-	local StatusMsg = BaseText:new{x=300, y = 50, w = 200, h = 30, align = "cm", fontSize=25, text="COUNT"}
+	local StatusMsg = BaseText:new{x=300, y = 50, w = 200, h = 60, align = "cm", fontSize=25, text="WAIT\nFOR PLAYER"}
 	local Player = {}
 	Player[1] = BaseText:new{x=50, y = 80, w = 200, h = 30, align = "cm", fontSize=25, text="____HOST___"}
 	Player[2] = BaseText:new{x=550, y = 80, w = 200, h = 30, align = "cm", fontSize=25, text="___USER____"}
@@ -402,22 +404,20 @@ function GameScreen()
 			end
 		end
 		
-		
-		if Game.game.turn == 1 then
-			Player[1].color = 0xFF00FF00
-			Player[2].color = 0xFFFFFFFF
-		elseif Game.game.turn == 2 then
-			Player[2].color = 0xFF00FF00
-			Player[1].color = 0xFFFFFFFF
-		else
-			Player[2].color = 0xFFFFFFFF
-			Player[1].color = 0xFFFFFFFF
-		end
 		if lastTurn ~= Game.game.turn then
 			Player[1]:Update()
 			Player[2]:Update()
 		end
 		
+		if Game.game.turn == Game.you then
+			StatusMsg.color = 0xFF00FF00
+			StatusMsg.text = "YOUR\nTURN"
+			StatusMsg:Update()
+		elseif Game.game.turn then
+			StatusMsg.color = 0xFFFFFFFF
+			StatusMsg.text = "HIS\nTURN"
+			StatusMsg:Update()
+		end
 		lastTurn = Game.game.turn
 		
 		local key = false
@@ -504,7 +504,13 @@ function History()
 	local Banner = {}
 	Banner.large = BaseText:new{x = 0, w = 800, y = 20, h = 100, align = "c", fontSize=75, text=Game.user.."'s", color = 0xFF483D8B}
 	Banner.small = BaseText:new{x = 0, w = 800, y = 130, h = 70, align = "cm", fontSize=45, text="History", color = 0xFFAA99CC}
-	local Exit = Button:new{x = 650, y=550, w = 120, h = 30, colorBG = 0xFF8800AA, colorText = 0xAAFFFFFF, text="Exit", fontName="Lucida Console"}
+	local Back = Button:new{x = 650, y=550, w = 120, h = 30, colorBG = 0xFF8800AA, colorText = 0xAAFFFFFF, text="Back", fontName="Lucida Console"}
+	
+	local prevButton = {x = 15, w = 120, y = 340, h = 30, colorBG = 0xFF881144, colorText = 0xAAFFFFFF, text="PREV", fontName="Lucida Console"}
+	local nextButton = {x = 665, w = 120, y = 340, h = 30, colorBG = 0xFF881144, colorText = 0xAAFFFFFF, text="NEXT", fontName="Lucida Console"}
+	
+	local Prev = false
+	local Next = false
 	
 	local Day = Button:new{x = 200, y=550, w = 120, h = 30, colorBG = 0xFFAA0088, colorText = 0xAAFFFFFF, text="Daily", fontName="Lucida Console"}
 	local Hour = Button:new{x = 340, y=550, w = 120, h = 30, colorBG = 0xFFAA0088, colorText = 0xAAFFFFFF, text="Hourly", fontName="Lucida Console"}
@@ -518,11 +524,14 @@ function History()
 	local CleanUp = function()
 		Banner.large:Remove()
 		Banner.small:Remove()
-		Exit:Remove()
+		Back:Remove()
 		
 		Day:Remove()
 		Hour:Remove()
 		All:Remove()
+		
+		if Prev then Prev:Remove() end
+		if Next then Next:Remove() end
 		
 		for i = 1, 8 do
 			Game.Rooms[i]:Remove()
@@ -530,62 +539,129 @@ function History()
 		Game.Rooms = nil
 	end
 	
+	local CleanUpNav = function()
+		if Next then Next:Remove() Next = false end
+		if Prev then Prev:Remove() Prev = false end
+	end
+	
+	local GamesShown = {}
+	for i = 1, #Game.OldGames do
+		GamesShown[i] = Game.OldGames[i]
+	end
+	
+	-- setup view
+	
 	for i = 1, 8 do
-			Game.Rooms[i].text = Game.OldGames[i]
+			Game.Rooms[i].text = GamesShown[i]
 			Game.Rooms[i]:Update()
 	end
+	
+	if #GamesShown > 8 then
+		Next = Button:new(nextButton)
+	end
+	local page = 0
 	
 	local Filter = false
 	
 	local refresh = 0
 	while Game.state == "stats" do 
 		--STUFF
-		if Exit:Clicked() then
+		if Back:Clicked() then
 			CleanUp()
-			return nil
+			Game.socket:Send(SerializeMessage("BackToLobby"))
+			return "lobby"
+		end
+		
+		if Next then
+			if Next:Clicked() then
+				page = page + 1
+				for i = 1, 8 do
+					Game.Rooms[i].text = GamesShown[i+page*8]
+					Game.Rooms[i]:Update()
+				end	
+				Prev = Button:new(prevButton)
+				if not GamesShown[(page+1)*8+1] then
+						Next:Remove()
+						Next = false
+				end		
+			end
+		end
+		
+		if Prev then
+			if Prev:Clicked() then
+				page = page - 1
+				for i = 1, 8 do
+					Game.Rooms[i].text = GamesShown[i+page*8]
+					Game.Rooms[i]:Update()
+				end	
+				Next = Button:new(nextButton)
+				if not GamesShown[(page-1)*8+1] then
+					Prev:Remove()
+					Prev = false
+				end
+			end
 		end
 		
 		if Day:Clicked() then
+			CleanUpNav()
+			
 			Filter = os.date("games/%y%m%d")
-			local it = 1
-			local i = 1
-			while i < 9 and it <= #Game.OldGames do
-				local found = string.find(Game.OldGames[it], Filter)
+			for i = 1, #GamesShown do GamesShown[i] = nil end
+			
+			for i = 1, #Game.OldGames do
+				local found = string.find(Game.OldGames[i], Filter)
 				if found == 1 then
-					Game.Rooms[i].text = Game.OldGames[it]
-					Game.Rooms[i]:Update()
-					i = i + 1
+					GamesShown[#GamesShown+1] = Game.OldGames[i]
 				end
-				it = it + 1
 			end
-			for n = i, 8 do
-				Game.Rooms[i].text = false
-				Game.Rooms[i]:Update()
-			end
-		end
-		if Hour:Clicked() then
-			Filter = os.date("games/%y%m%d%H")
-			local it = 1
-			local i = 1
-			while i < 8 and it <= #Game.OldGames do
-				local found = string.find(Game.OldGames[it], Filter)
-				if found == 1 then
-					Game.Rooms[i].text = Game.OldGames[it]
-					Game.Rooms[i]:Update()
-					i = i + 1
-				end
-				it = it + 1
-			end
-			for n = i, 8 do
-				Game.Rooms[n].text = false
-				Game.Rooms[n]:Update()
-			end
-		end
-		if All:Clicked() then
 			for i = 1, 8 do
-				Game.Rooms[i].text = Game.OldGames[i]
+				Game.Rooms[i].text = GamesShown[i]
 				Game.Rooms[i]:Update()
 			end
+			if #GamesShown > 8 then
+				Next = Button:new(nextButton)
+			end
+			page = 0
+		end
+		
+		if Hour:Clicked() then
+			CleanUpNav()
+			
+			Filter = os.date("games/%y%m%d%H")
+			for i = 1, #GamesShown do GamesShown[i] = nil end
+			
+			for i = 1, #Game.OldGames do
+				local found = string.find(Game.OldGames[i], Filter)
+				if found == 1 then
+					GamesShown[#GamesShown+1] = Game.OldGames[i]
+				end
+			end
+			for i = 1, 8 do
+				Game.Rooms[i].text = GamesShown[i]
+				Game.Rooms[i]:Update()
+			end
+			if #GamesShown > 8 then
+				Next = Button:new(nextButton)
+			end
+			page = 0
+		end
+		
+		if All:Clicked() then
+			CleanUpNav()
+		
+			for i = 1, #GamesShown do GamesShown[i] = nil end
+			for i = 1, #Game.OldGames do
+				GamesShown[i] = Game.OldGames[i]
+			end
+			
+			for i = 1, 8 do
+				Game.Rooms[i].text = GamesShown[i]
+				Game.Rooms[i]:Update()
+			end
+			if #GamesShown > 8 then
+				Next = Button:new(nextButton)
+			end
+			page = 0
 		end
 		
 		
@@ -632,7 +708,7 @@ function WatchGame()
 		for i=1,4 do line[i]:Remove() end
 		for i = 1, 9 do spots[i]:Remove() end
 	end
-	
+
 	for i=1, #Game.Replay do
 		--play a move
 		Engine.SleepRoutine(1500)
@@ -640,17 +716,33 @@ function WatchGame()
 		StatusMsg.text = i
 		StatusMsg:Update()
 		if t.Player == "o" then 
+			Player[1].color = 0xFF00FF00
+			Player[2].color = 0xFFFFFFFF
 			spots[t.Spot].texture = "assets/O.png"
 			spots[t.Spot]:Update()
 		else
+			Player[2].color = 0xFF00FF00
+			Player[1].color = 0xFFFFFFFF
 			spots[t.Spot].texture = "assets/X.png"
 			spots[t.Spot]:Update()
 		end
+		Player[1]:Update()
+		Player[2]:Update()
 	end
-	if Game.Replay.State == "draw" then
+	if Game.Replay.state == "draw" then
 		StatusMsg.text = "DRAW"
 	else
-		print(Game.Replay.turn)
+		if Game.Replay.state == "rageQuit" then
+			if Game.Replay.turn == 2 then
+				Player[1].text = "RAGEQUIT"
+				Player[1].color = 0xFFFF0000
+				Player[1]:Update()
+			else
+				Player[2].text = "RAGEQUIT"
+				Player[2].color = 0xFFFF0000
+				Player[2]:Update()
+			end
+		end
 		StatusMsg.text = Player[Game.Replay.turn].text .. " WINS!"
 	end
 		StatusMsg:Update()

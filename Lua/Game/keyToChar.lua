@@ -1,4 +1,4 @@
-local KeyMap = 
+local SensitiveMap = 
 {
 	[16] = 'q',
 	[17] = 'w',
@@ -28,10 +28,36 @@ local KeyMap =
 	[48] = 'b',
 	[49] = 'n',
 	[50] = 'm',
+}
+
+local InsensitiveMap =
+{
+	[2] = '1',
+	[3] = '2',
+	[4] = '3',
+	[5] = '4',
+	[6] = '5',
+	[7] = '6',
+	[8] = '7',
+	[9] = '8',
+	[10] = '9',
+	[11] = '0',
 	
 	[57] = ' ',
-	[14] = -1,
 	
+	-- num pad
+	
+	[71] = '7',
+	[72] = '8',
+	[73] = '9',
+	
+	[75] = '4',
+	[76] = '5',
+	[77] = '6',
+	
+	[79] = '7',
+	[80] = '8',
+	[81] = '9',
 }
 
 local KeyMaskMap = {}
@@ -47,43 +73,43 @@ function GetCharInput()
 	local input = nil
 	local ch
 	
-	for k, v in pairs(KeyMap) do
+	if Engine.GetKeyState(14) then return -1 end
+	
+	for k, v in pairs(InsensitiveMap) do
 		if Engine.GetKeyState(k) then
 			if not KeyMaskMap[k] then
-				
-				if k~=57 then
-					ch = string.char(string.byte(v)-32*caps)
+				ch = string.char(string.byte(v))
+	
+				if not input then 
+					input = ch 
 				else
-					ch = string.char(string.byte(v))
+					input = input .. ch
 				end
+			end
+			KeyMaskMap[k] = true
+			
+		else
+			KeyMaskMap[k] = false
+		end
+	end
+	
+	for k, v in pairs(SensitiveMap) do
+		if Engine.GetKeyState(k) then
+			if not KeyMaskMap[k] then
+				ch = string.char(string.byte(v)-32*caps)
 				
 				if not input then 
 					input = ch 
 				else
 					input = input .. ch
 				end
-				
-				LastInput = k
 			end
 			KeyMaskMap[k] = true
 			
-			if k == 14 then
-				return -1
-			end
-			
 		else
-			if k == LastInput then LastInput = nil end
 			KeyMaskMap[k] = false
 		end
 	end
-	ch = KeyMap[LastInput]
-	if ch then
-		if k~=57 then
-			ch = string.char(string.byte(KeyMap[LastInput])-32*caps)
-		else
-			ch = string.char(string.byte(KeyMap[LastInput]))
-		end
-	end
-	if KeyMaskMap[14] then return -1 end -- backspace
-	return input or ch
+	
+	return input
 end

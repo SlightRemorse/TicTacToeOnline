@@ -11,8 +11,13 @@ function GameServerSocket:onConnect()
 	self.state = "login"
 end
 
+local loggedUsers = {}
+
 function GameServerSocket:onDisconnect()
-	print("Disconnected!", self.state)
+	print("Disconnected!", self.user, self.state)
+	if self.user then
+		loggedUsers[self.user] = nil
+	end
 	if self.state == "login" then
 		--nothing to clean up
 	elseif self.state == "lobby" then
@@ -76,6 +81,7 @@ function GameServerSocket:onReceive(msg)
 			self:Send(SerializeMessage("Login", "logged"))
 			self.user = args[1]
 			self.state = "lobby"
+			loggedUsers[self.user] = true
 		end
 		
 		if not Users[args[1]] then
@@ -84,9 +90,13 @@ function GameServerSocket:onReceive(msg)
 			SuccessfulLogin()
 		else
 			if args[2] == Users[args[1]].Password then
-				SuccessfulLogin()
+				if loggedUsers[args[1]] then
+					self:Send(SerializeMessage("Login", "account in use"))
+				else
+					SuccessfulLogin()
+				end
 			else
-				self:Send(SerializeMessage("Login", "failed"))
+				self:Send(SerializeMessage("Login", "wrong password"))
 			end
 		end
 	elseif cmd == "ListGames" then
@@ -254,6 +264,13 @@ function GameServerSocket:onReceive(msg)
 		else
 			self:Send(SerializeMessage("Request"))
 		end
+	elseif cmd == "BackToLobby" then
+		if self.state ~= "stats" or args  then
+			print("Disconnecting!")
+			print(self:Disconnect())
+			return
+		end
+		self.state = "lobby"
 	end
 end
 
