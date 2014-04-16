@@ -13,6 +13,44 @@ end
 
 local loggedUsers = {}
 
+function RageQuitHandle(self)
+	if Server.Rooms[self.gameID].Player1 == self then
+		--host left
+		if Server.Rooms[self.gameID].Player2 then
+			Server.Rooms[self.gameID].state = "rageQuit"
+			Server.Rooms[self.gameID].turn = 2
+			
+			local filename = SaveGame(SerializeGame(Server.Rooms[self.gameID]))
+			local ut
+			ut = Users[Server.Rooms[self.gameID].Player1.user]
+			ut[#ut+1] = filename
+			ut = Users[Server.Rooms[self.gameID].Player2.user]
+			ut[#ut+1] = filename
+			SaveUsers(SerializeUsers(Users))
+			
+			Server.Rooms[self.gameID].Player2:Send(SerializeMessage("rageQuit"))
+			Server.Rooms[self.gameID].Player2.state = "lobby"
+		end
+		Server.Rooms[self.gameID] = false
+	else
+		--player 2 left
+		Server.Rooms[self.gameID].state = "rageQuit"
+		Server.Rooms[self.gameID].turn = 1
+		
+		local filename = SaveGame(SerializeGame(Server.Rooms[self.gameID]))
+		local ut
+		ut = Users[Server.Rooms[self.gameID].Player1.user]
+		ut[#ut+1] = filename
+		ut = Users[Server.Rooms[self.gameID].Player2.user]
+		ut[#ut+1] = filename
+		SaveUsers(SerializeUsers(Users))
+		
+		Server.Rooms[self.gameID].Player1:Send(SerializeMessage("rageQuit"))
+		Server.Rooms[self.gameID].Player1.state = "lobby"
+		Server.Rooms[self.gameID] = false
+	end
+end
+
 function GameServerSocket:onDisconnect()
 	print("Disconnected!", self.user, self.state)
 	if self.user then
@@ -23,41 +61,7 @@ function GameServerSocket:onDisconnect()
 	elseif self.state == "lobby" then
 		--nothing to clean up
 	elseif self.state == "game" then
-		if Server.Rooms[self.gameID].Player1 == self then
-			--host left
-			if Server.Rooms[self.gameID].Player2 then
-				Server.Rooms[self.gameID].state = "rageQuit"
-				Server.Rooms[self.gameID].turn = 2
-				
-				local filename = SaveGame(SerializeGame(Server.Rooms[self.gameID]))
-				local ut
-				ut = Users[Server.Rooms[self.gameID].Player1.user]
-				ut[#ut+1] = filename
-				ut = Users[Server.Rooms[self.gameID].Player2.user]
-				ut[#ut+1] = filename
-				SaveUsers(SerializeUsers(Users))
-				
-				Server.Rooms[self.gameID].Player2:Send(SerializeMessage("rageQuit"))
-				Server.Rooms[self.gameID].Player2.state = "lobby"
-			end
-			Server.Rooms[self.gameID] = false
-		else
-			--player 2 left
-			Server.Rooms[self.gameID].state = "rageQuit"
-			Server.Rooms[self.gameID].turn = 1
-			
-			local filename = SaveGame(SerializeGame(Server.Rooms[self.gameID]))
-			local ut
-			ut = Users[Server.Rooms[self.gameID].Player1.user]
-			ut[#ut+1] = filename
-			ut = Users[Server.Rooms[self.gameID].Player2.user]
-			ut[#ut+1] = filename
-			SaveUsers(SerializeUsers(Users))
-			
-			Server.Rooms[self.gameID].Player1:Send(SerializeMessage("rageQuit"))
-			Server.Rooms[self.gameID].Player1.state = "lobby"
-			Server.Rooms[self.gameID] = false
-		end
+		RageQuitHandle(self)
 	elseif self.state == "stats" then
 		--nothing to clean up
 	end
@@ -271,13 +275,21 @@ function GameServerSocket:onReceive(msg)
 			return
 		end
 		self.state = "lobby"
+	elseif cmd == "QuitGame" then
+		if self.state ~= "game" or args  then
+			print("Disconnecting!")
+			print(self:Disconnect())
+			return
+		end
+		RageQuitHandle(self)
+		self.state = "lobby"
 	end
 end
 
-function EvaluateGame(game)
+function EvaluateGame(game)	
 	for i = 1, 3 do 
 		if game[i*3 - 2] == game[i*3 - 1] and game[i*3 - 1] == game[3*i] and game[i*3] ~= false then
-			return game[i]
+			return game[i*3]
 		end
 		if game[i] == game[i + 3] and game[i + 3] == game[i + 6] and game[i] ~= false then
 			return game[i]

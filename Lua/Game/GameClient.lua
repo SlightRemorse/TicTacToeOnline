@@ -29,6 +29,8 @@ function GameClientSocket:onReceive(msg)
 			Game.state = "lobby"
 			print("Connected. Moving to Lobby.")
 		else
+			Game.Error.text = args[1]
+			Game.Error:Update()
 			print("Connection:", args[1])
 		end	
 	elseif cmd == "ListGames" then
@@ -224,7 +226,7 @@ function LoginScreen()
 	local Banner = {}
 	Banner.large = BaseText:new{x = 0, w = 800, y = 20, h = 180, align = "cm", fontSize=120, text="Tic Tac Toe", color = 0xFF483D8B}
 	Banner.small = BaseText:new{x = 0, w = 800, y = 200, h = 60, align = "cm", fontSize=55, text="ONLINE", color = 0xFF483D8B}
-	
+	Game.Error = BaseText:new{x=300, y=430, w = 200, h = 30, align = "cm", fontStyle="b", fontSize=20, color = 0xFF990000, text = ""}
 	local CleanUp = function()
 		Username.text:Remove()
 		Username.field:Remove()
@@ -233,6 +235,11 @@ function LoginScreen()
 		Connect:Remove()
 		Banner.large:Remove()
 		Banner.small:Remove()
+		
+		if Game.Error then
+			Game.Error:Remove()
+			Game.Error = nil
+		end
 	end
 	
 	while Game.state == "login" do 
@@ -245,11 +252,15 @@ function LoginScreen()
 			Username.field.Focused = false
 		elseif Connect:Clicked() then
 			if not Username.field.text or not Password.field.text then
+				Game.Error.text = "empty field"
+				Game.Error:Update()
 				print("A field is empty!")
 			else
 				print("Connecting as:", Username.field.text, Password.field.text)
 				local socket, err = ConnectToServer(Game.hostname, Game.port)
 				if err then
+					Game.Error.text = "unable to connect"
+					Game.Error:Update()
 					print("Unable to connect!")
 				else
 					Game.socket = socket -- from now on we use this socket
@@ -356,6 +367,9 @@ function GameScreen()
 	Objects[1] = BaseSprite:new{x=100, y = 150, w = 100, h = 100, texture="assets/X.png"}
 	Objects[2] = BaseSprite:new{x=600, y = 150, w = 100, h = 100, texture="assets/O.png"}
 	
+	local Back = Button:new{x = 650, y=550, w = 120, h = 30, colorBG = 0xFF8800AA, colorText = 0xAAFFFFFF, text="Quit", fontName="Lucida Console"}
+	
+	
 	local line = {}
 	line[1] = BaseLine:new{x1=250, x2=550, y1=250, y2=250}
 	line[2] = BaseLine:new{x1=250, x2=550, y1=350, y2=350}
@@ -373,6 +387,7 @@ function GameScreen()
 		Player[2]:Remove()
 		Objects[1]:Remove()
 		Objects[2]:Remove()
+		Back:Remove()
 		for i=1,4 do line[i]:Remove() end
 		for i = 1, 9 do spots[i]:Remove() end
 	end
@@ -380,6 +395,11 @@ function GameScreen()
 	local prevState
 	local lastTurn
 	while Game.state == "game" do 
+		if Back:Clicked() then
+			CleanUp()
+			QuitCurrentGame()
+			return Game.state
+		end
 		--STUFF
 		if Player[1].text ~= Game.game.Player1 then
 			Player[1].text = Game.game.Player1
@@ -436,31 +456,31 @@ function GameScreen()
 	end
 	
 	CleanUp()
+	local RQ
 	if Game.game == "rageQuit" then
-		local RQ = Button:new{x=200, y = 200, w = 400, h = 50, colorBG = 0xFFFF0000, 
+		RQ = Button:new{x=200, y = 200, w = 400, h = 50, colorBG = 0xFFFF0000, 
 							colorText = 0xFF000000, fontName="Lucida Console", text="RAGE QUIT"}
-		Engine.SleepRoutine(5000)
-		RQ:Remove()
 	elseif Game.game == "win" then
-		local RQ = Button:new{x=200, y = 200, w = 400, h = 50, colorBG = 0xFF00FF00, 
+		RQ = Button:new{x=200, y = 200, w = 400, h = 50, colorBG = 0xFF00FF00, 
 							colorText = 0xFF000000, fontName="Lucida Console", text="YOU WIN"}
-		Engine.SleepRoutine(5000)
-		RQ:Remove()
 	elseif Game.game == "lose" then
-		local RQ = Button:new{x=200, y = 200, w = 400, h = 50, colorBG = 0xFFFF0000, 
+		RQ = Button:new{x=200, y = 200, w = 400, h = 50, colorBG = 0xFFFF0000, 
 							colorText = 0xFF000000, fontName="Lucida Console", text="YOU LOSE"}
-		Engine.SleepRoutine(5000)
-		RQ:Remove()
 	elseif Game.game == "draw" then
-		local RQ = Button:new{x=200, y = 200, w = 400, h = 50, colorBG = 0xFFFF00FF, 
+		RQ = Button:new{x=200, y = 200, w = 400, h = 50, colorBG = 0xFFFF00FF, 
 							colorText = 0xFF000000, fontName="Lucida Console", text="DRAW"}
-		Engine.SleepRoutine(5000)
-		RQ:Remove()
 	end
+	Engine.SleepRoutine(5000)
+	RQ:Remove()
+	
 	return Game.state
 end
 
---Main
+function QuitCurrentGame()
+	Game.socket:Send(SerializeMessage("QuitGame"))
+	Game.state = "lobby"
+end
+
 function ConnectToServer(hostname, port)
 	local sock = GameClientSocket:new{}
 	local err = sock:Connect(hostname, port)
